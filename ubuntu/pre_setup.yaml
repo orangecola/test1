@@ -1,0 +1,19 @@
+---
+- name: Pre-setup actions for ubuntu, install python as bionic does not have python2 required by ansible
+  hosts: default
+  user: ubuntu
+  become: True
+  gather_facts: no
+  pre_tasks:
+    - name: "Universe"
+      apt_repository:
+        repo: deb http://archive.ubuntu.com/ubuntu focal universe
+        state: present
+    - name: Update repositories cache and install "python2" package
+      apt:
+        name: python2
+        update_cache: yes
+      
+    #- name: 'install python2'
+    #  raw: sudo apt-get -y install python2
+ 

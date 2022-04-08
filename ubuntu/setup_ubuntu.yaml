@@ -1,0 +1,139 @@
+---
+- name: Prepare System
+  hosts: default
+  user: ubuntu
+  become: True
+
+  tasks:
+    - name: Add Python 3 Repo
+      apt_repository: repo='ppa:deadsnakes/ppa'
+
+    - name: Install Essential Ubuntu Packages
+      action: apt pkg={{ item }} state=present force=yes
+      with_items:
+        - collectd
+        #- ntp
+        - software-properties-common
+        - libgnutls28-dev #needed for pycurl
+        #- python3.7
+        - python3.9
+        - python3-pip
+        - python3.9-dev
+        #- python-pip
+        - python2.7
+        #- python-minimal
+        - python3.9-venv #solves distutils.spawn error
+        - unzip
+        - htop
+        - cockpit #for Server Admin Web UI
+        #- cloud-init=18.2-14-g6d48d265-0ubuntu1 #downgrade cloud-init package due to bug in "bionic-updates" release, Bug: https://bugs.launchpad.net/ubuntu/+source/cloud-init/+bug/1802073
+        - imagemagick
+        - graphicsmagick
+        - libheif-examples #for HEIC Image support
+        - chrony
+
+    #- name: Update apt-get
+    #  apt: update_cache=yes
+
+    - name: Install pycurl
+      action: apt pkg={{ item }} state=present
+      with_items:
+        - python-pycurl
+
+    - name: install various libraries with pip
+      action: pip name={{ item }} state=present
+      with_items:
+        - virtualenv
+        - supervisor
+        - pexpect
+
+    #create nginx user and group
+    - name: Create nginx group
+      group: name=nginx state=present
+
+    - name: Create nginx user
+      user: name=nginx group=root shell=/sbin/nologin home=/var/www state=present
+
+    #create nidhinova/filespin folders
+    - name: Make FileSpin.io directories
+      file: path=/nidhinova state=directory owner=ubuntu group=root mode=755
+
+    - name: Make FileSpin.io directories
+      file: path=/nidhinova/filespin state=directory owner=ubuntu mode=755
+
+    - name: Make FileSpin.io directories
+      file: path=/nidhinova/filespin/logs state=directory owner=ubuntu mode=770
+
+    - name: create uploads folder
+      action: file dest=/mnt/uploads state=directory owner=nginx group=ubuntu mode=770
+
+    - name: create cloudthumbs folder
+      action: file dest=/mnt/uploads/cloudthumbs state=directory owner=nginx group=ubuntu mode=770
+
+    - name: create celery flower db folder
+      action: file dest=/nidhinova/filespin/celery-flower state=directory owner=ubuntu mode=755
+
+    # Creates an crontab entry to delete temp files every 5 minutes
+    - cron: name="delete temp files" minute="*/5" job="rm /mnt/uploads/*_DELETE"
+
+    # Creates an crontab entry to empty nginx log every week
+    - cron: name="weekly empty nginx log" weekday="0" minute=0 hour=6
+        user="root" job="cat /dev/null > /var/log/nginx/nginx_access.log"
+
+    # Creates an crontab entry to delete old application logs
+    - cron: name="daily empty app log" weekday="0" minute=0 hour=4
+        job="rm /nidhinova/filespin/logs/*.log.?"
+
+    - cron: name="daily empty app log" weekday="*/1" minute=0 hour=4
+        job="rm /nidhinova/filespin/logs/*.log.??"
+
+    # Creates an crontab entry to delete old cloudthumbs
+    - cron: name="daily deletion of cloudthumbs" weekday="0" minute=0 hour=2
+        job="find /mnt/uploads/cloudthumbs -type f -mmin +120 -name '*' -delete"
+
+    #daily deletion of thumbor-cache
+    - cron:
+        name="daily deletion of thumbor-cache" weekday="*/1" minute=1 hour="*/3"
+        job="find /tmp/thumbor/storage -type f -amin +240 -name '*' -delete"
+
+    #requires secrets folder to be present with necessary file
+    #init ssh keys
+    #- name: copy ssh keys
+    #  copy: src=../secrets/secure-keys/aws@filespin.io/id_rsa dest=/home/ubuntu/.ssh/ owner=ubuntu mode=600
+
+    #requires secrets folder to be present with necessary file
+    #init ssh keys
+    #- name: copy ssh keys
+    #  copy: src=../secrets/secure-keys/aws@filespin.io/id_rsa.pub dest=/home/ubuntu/.ssh/ owner=ubuntu mode=600
+
+    - name: Update chrony conf for Amazon Time Sync service
+      lineinfile:
+        path: /etc/chrony/chrony.conf
+        insertbefore: "BOF"
+        line: "server 169.254.169.123 prefer iburst minpoll 4 maxpoll 4"
+
+    # if "service is masked" error occurs
+    #sudo systemctl unmask chrony.service
+
+    - name: Enable chrony on boot
+      systemd:
+        state: started
+        enabled: yes
+        name: chronyd
+
+    #to tell glibc to prefer IPV4 over IPV6 - helps python httplib2 to work properly on EC2
+    - name: Update gai.conf
+      lineinfile:
+        path: /etc/gai.conf
+        insertbefore: "EOF"
+        line: "precedence ::ffff:0:0/96  100"
+
+    #DO MANUALLY: setup locales, generate all locales and select default as C.UTF-8
+    #- name: Set LC_ALL
+    #  command: export LC_ALL="en_US.UTF-8"
+
+    #- name: Set LC_CTYPE
+    #  command: export LC_CTYPE="en_US.UTF-8"
+
+    #- name: reconfigure locales
+    #  command: dpkg-reconfigure locales
