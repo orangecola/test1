@@ -22,6 +22,9 @@ jobs:
       - name: Validate Template
         run: packer validate --syntax-only image.pkr.hcl
       #Install tools
+      - name: Get Caller Identity
+        run: aws sts get-caller-identity
+      #Install tools
       - name: Install Ansible / Packer
         run: |
           curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -
